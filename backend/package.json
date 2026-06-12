@@ -1,0 +1,16 @@
+{
+  "name": "skribbl-backend",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/server.js",
+  "scripts": {
+    "dev": "node src/server.js",
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.0",
+    "express": "^4.21.1",
+    "socket.io": "^4.1.0"
+  }
+}
