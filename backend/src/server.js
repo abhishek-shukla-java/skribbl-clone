@@ -38,6 +38,9 @@ io.on('connection', (socket) => {
       roomCode,
       hostId: socket.id,
       players: [{ id: socket.id, name: trimmedName }],
+      status: 'lobby',
+      currentDrawerId: null,
+      currentDrawerName: null,
     };
 
     rooms.set(roomCode, room);
@@ -72,6 +75,30 @@ io.on('connection', (socket) => {
     io.to(code).emit('room_updated', room);
 
     console.log(`Player ${socket.id} joined room ${code}`);
+  });
+
+  socket.on('start_game', ({ roomCode }) => {
+    const code = roomCode?.trim().toUpperCase();
+    const room = rooms.get(code);
+
+    if (!room) {
+      socket.emit('room_error', { message: 'Room does not exist.' });
+      return;
+    }
+
+    if (room.hostId !== socket.id) {
+      socket.emit('room_error', { message: 'Only the host can start the game.' });
+      return;
+    }
+
+    const firstDrawer = room.players[0];
+
+    room.status = 'in_progress';
+    room.currentDrawerId = firstDrawer?.id || null;
+    room.currentDrawerName = firstDrawer?.name || null;
+
+    io.to(code).emit('round_start', room);
+    console.log(`Round started in room ${code} by host ${socket.id}`);
   });
 
   socket.on('disconnect', () => {

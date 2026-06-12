@@ -8,6 +8,8 @@ export default function App() {
   const [message, setMessage] = useState('');
   const [socket, setSocket] = useState(null);
 
+  const isHost = socket?.id && room?.hostId === socket.id;
+
   useEffect(() => {
     const client = io('http://localhost:5000', {
       transports: ['websocket'],
@@ -30,6 +32,11 @@ export default function App() {
     client.on('room_updated', (updatedRoom) => {
       setRoom(updatedRoom);
       setMessage(`Lobby updated. ${updatedRoom.players.length} player(s) in the room.`);
+    });
+
+    client.on('round_start', (startedRoom) => {
+      setRoom(startedRoom);
+      setMessage(`Round started! ${startedRoom.currentDrawerName || 'A player'} is drawing.`);
     });
 
     client.on('room_error', ({ message: errorMessage }) => {
@@ -82,6 +89,20 @@ export default function App() {
     }
 
     socket.emit('join_room', { playerName: playerName.trim(), roomCode: code });
+  };
+
+  const handleStartGame = () => {
+    if (!socket) {
+      setMessage('Socket connection is not ready yet.');
+      return;
+    }
+
+    if (!room?.roomCode) {
+      setMessage('You need to be in a room first.');
+      return;
+    }
+
+    socket.emit('start_game', { roomCode: room.roomCode });
   };
 
   return (
@@ -143,6 +164,18 @@ export default function App() {
             <p className="font-semibold">Lobby</p>
             <p className="mt-1">Code: <span className="font-mono text-xl tracking-[0.35em]">{room.roomCode}</span></p>
             <p className="mt-1">Host: {room.players[0]?.name || 'Waiting for host'}</p>
+            {room.currentDrawerName && (
+              <p className="mt-2 text-emerald-50">Current drawer: <span className="font-semibold">{room.currentDrawerName}</span></p>
+            )}
+            {isHost && !room.currentDrawerName && (
+              <button
+                type="button"
+                onClick={handleStartGame}
+                className="mt-4 w-full rounded-xl bg-amber-300 px-4 py-3 font-semibold text-slate-950 transition hover:bg-amber-200"
+              >
+                Start Game
+              </button>
+            )}
             <p className="mt-2 font-medium text-emerald-50">Players in lobby</p>
             <ul className="mt-2 space-y-1 text-emerald-100/90">
               {room.players.map((player) => (
