@@ -9,6 +9,8 @@ export default function App() {
   const [socket, setSocket] = useState(null);
 
   const isHost = socket?.id && room?.hostId === socket.id;
+  const isCurrentDrawer = socket?.id && room?.currentDrawerId === socket.id;
+  const wordLengthDisplay = room?.selectedWord ? room.selectedWord.split('').map((char) => /[A-Za-z]/.test(char) ? '_' : char).join(' ') : 'Waiting for the drawer to choose a word.';
 
   useEffect(() => {
     const client = io('http://localhost:5000', {
@@ -37,6 +39,24 @@ export default function App() {
     client.on('round_start', (startedRoom) => {
       setRoom(startedRoom);
       setMessage(`Round started! ${startedRoom.currentDrawerName || 'A player'} is drawing.`);
+    });
+
+    client.on('word_choices', ({ words }) => {
+      setRoom((currentRoom) => ({
+        ...(currentRoom || {}),
+        wordChoices: words,
+        status: 'choosing_word',
+      }));
+      setMessage('Choose one of the three words to start the round.');
+    });
+
+    client.on('word_chosen', (updatedRoom) => {
+      setRoom((currentRoom) => ({
+        ...(currentRoom || {}),
+        ...updatedRoom,
+        status: 'in_progress',
+      }));
+      setMessage(`The word has been chosen. ${updatedRoom.currentDrawerName || 'Drawer'} is ready to draw.`);
     });
 
     client.on('room_error', ({ message: errorMessage }) => {
@@ -105,6 +125,15 @@ export default function App() {
     socket.emit('start_game', { roomCode: room.roomCode });
   };
 
+  const handleChooseWord = (word) => {
+    if (!socket || !room?.roomCode) {
+      setMessage('Unable to choose a word right now.');
+      return;
+    }
+
+    socket.emit('choose_word', { roomCode: room.roomCode, word });
+  };
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6">
       <section className="w-full max-w-xl rounded-3xl border border-slate-800 bg-slate-900/90 p-8 shadow-2xl shadow-slate-950/60">
@@ -166,6 +195,29 @@ export default function App() {
             <p className="mt-1">Host: {room.players[0]?.name || 'Waiting for host'}</p>
             {room.currentDrawerName && (
               <p className="mt-2 text-emerald-50">Current drawer: <span className="font-semibold">{room.currentDrawerName}</span></p>
+            )}
+            {isCurrentDrawer && room.status === 'choosing_word' && room.wordChoices?.length > 0 && (
+              <div className="mt-4 rounded-2xl border border-amber-400/30 bg-slate-950/50 p-4">
+                <p className="text-sm font-semibold text-amber-100">Choose a word</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {room.wordChoices.map((word) => (
+                    <button
+                      key={word}
+                      type="button"
+                      onClick={() => handleChooseWord(word)}
+                      className="rounded-xl border border-amber-300/40 bg-amber-300/10 px-3 py-2 text-amber-50 transition hover:bg-amber-300/20"
+                    >
+                      {word}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {room.selectedWord && (
+              <div className="mt-4 rounded-2xl border border-cyan-400/30 bg-slate-950/50 p-4">
+                <p className="text-sm font-semibold text-cyan-100">{isCurrentDrawer ? 'Your secret word' : 'Word length'}</p>
+                <p className="mt-1 text-lg font-mono tracking-[0.25em] text-cyan-50">{isCurrentDrawer ? room.selectedWord : wordLengthDisplay}</p>
+              </div>
             )}
             {isHost && !room.currentDrawerName && (
               <button

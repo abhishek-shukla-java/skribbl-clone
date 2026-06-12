@@ -8,6 +8,10 @@ const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 
 const rooms = new Map();
+const WORD_BANK = [
+  'apple', 'planet', 'rocket', 'guitar', 'tiger', 'ocean', 'castle', 'flower', 'piano', 'sunset',
+  'pirate', 'diamond', 'volcano', 'jungle', 'garden', 'dragon', 'umbrella', 'library', 'mountain', 'robot',
+];
 
 const generateRoomCode = () => {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -41,6 +45,8 @@ io.on('connection', (socket) => {
       status: 'lobby',
       currentDrawerId: null,
       currentDrawerName: null,
+      wordChoices: [],
+      selectedWord: null,
     };
 
     rooms.set(roomCode, room);
@@ -92,13 +98,53 @@ io.on('connection', (socket) => {
     }
 
     const firstDrawer = room.players[0];
+    const wordChoices = [...WORD_BANK]
+      .sort(() => Math.random() - 0.5)
+      .slice(0, 3);
 
-    room.status = 'in_progress';
+    room.status = 'choosing_word';
     room.currentDrawerId = firstDrawer?.id || null;
     room.currentDrawerName = firstDrawer?.name || null;
+    room.wordChoices = wordChoices;
+    room.selectedWord = null;
 
     io.to(code).emit('round_start', room);
+    io.to(firstDrawer.id).emit('word_choices', { roomCode: code, words: wordChoices });
+
     console.log(`Round started in room ${code} by host ${socket.id}`);
+  });
+
+  socket.on('choose_word', ({ roomCode, word }) => {
+    const code = roomCode?.trim().toUpperCase();
+    const room = rooms.get(code);
+
+    if (!room) {
+      socket.emit('room_error', { message: 'Room does not exist.' });
+      return;
+    }
+
+    if (room.currentDrawerId !== socket.id) {
+      socket.emit('room_error', { message: 'Only the current drawer can choose a word.' });
+      return;
+    }
+
+    if (!room.wordChoices.includes(word)) {
+      socket.emit('room_error', { message: 'That word is not available.' });
+      return;
+    }
+
+    room.selectedWord = word;
+    room.status = 'in_progress';
+
+    io.to(code).emit('word_chosen', {
+      roomCode: code,
+      selectedWord: word,
+      currentDrawerId: room.currentDrawerId,
+      currentDrawerName: room.currentDrawerName,
+      wordChoices: room.wordChoices,
+    });
+
+    console.log(`Drawer ${socket.id} chose word "${word}" for room ${code}`);
   });
 
   socket.on('disconnect', () => {
