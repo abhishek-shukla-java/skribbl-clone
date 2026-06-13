@@ -28,6 +28,15 @@ const generateRoomCode = () => {
 
 const getScores = (room) => room.players.map((player) => ({ id: player.id, name: player.name, score: player.score || 0 }));
 
+const sanitizeRoom = (room) => {
+  if (!room) {
+    return room;
+  }
+
+  const { timerId, ...safeRoom } = room;
+  return safeRoom;
+};
+
 const clearRoundTimer = (room) => {
   if (room.timerId) {
     clearInterval(room.timerId);
@@ -120,13 +129,13 @@ const endRound = (room, code, io, reason = 'guess') => {
 
     if (!nextDrawer) {
       room.status = 'lobby';
-      io.to(code).emit('room_updated', room);
+      io.to(code).emit('room_updated', sanitizeRoom(room));
       return;
     }
 
     room.currentRound += 1;
     startRound(room, nextIndex, room.currentRound);
-    io.to(code).emit('round_start', room);
+    io.to(code).emit('round_start', sanitizeRoom(room));
     io.to(nextDrawer.id).emit('word_choices', { roomCode: code, words: room.wordChoices });
     startRoundTimer(room, code, io);
   }, 5000);
@@ -164,8 +173,8 @@ io.on('connection', (socket) => {
 
     rooms.set(roomCode, room);
     socket.join(roomCode);
-    socket.emit('room_created', room);
-    socket.emit('room_updated', room);
+    socket.emit('room_created', sanitizeRoom(room));
+    socket.emit('room_updated', sanitizeRoom(room));
 
     console.log(`Room created: ${roomCode} by ${socket.id}`);
   });
@@ -194,8 +203,8 @@ io.on('connection', (socket) => {
     }
 
     socket.join(code);
-    socket.emit('room_joined', room);
-    io.to(code).emit('room_updated', room);
+    socket.emit('room_joined', sanitizeRoom(room));
+    io.to(code).emit('room_updated', sanitizeRoom(room));
 
     console.log(`Player ${socket.id} joined room ${code}`);
   });
@@ -222,7 +231,7 @@ io.on('connection', (socket) => {
     room.currentRound = 1;
     const { drawer, wordChoices } = startRound(room, 0, 1);
 
-    io.to(code).emit('round_start', room);
+    io.to(code).emit('round_start', sanitizeRoom(room));
     io.to(drawer.id).emit('word_choices', { roomCode: code, words: wordChoices });
 
     console.log(`Round started in room ${code} by host ${socket.id}`);
@@ -363,7 +372,7 @@ io.on('connection', (socket) => {
         playerName: player?.name || 'Player',
         scores: room.players.map((entry) => ({ id: entry.id, name: entry.name, score: entry.score || 0 })),
       });
-      io.to(code).emit('room_updated', room);
+      io.to(code).emit('room_updated', sanitizeRoom(room));
 
       endRound(room, code, io, 'guess');
     }
@@ -389,7 +398,7 @@ io.on('connection', (socket) => {
     if (room.players.length === 0) {
       rooms.delete(roomCode);
     } else {
-      io.to(roomCode).emit('room_updated', room);
+      io.to(roomCode).emit('room_updated', sanitizeRoom(room));
     }
 
     console.log('Client disconnected:', socket.id);
