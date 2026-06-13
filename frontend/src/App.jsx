@@ -4,6 +4,8 @@ import { io } from 'socket.io-client';
 export default function App() {
   const [playerName, setPlayerName] = useState('');
   const [roomCodeInput, setRoomCodeInput] = useState('');
+  const [totalRoundsInput, setTotalRoundsInput] = useState('3');
+  const [drawTimeInput, setDrawTimeInput] = useState('60');
   const [room, setRoom] = useState(null);
   const [message, setMessage] = useState('');
   const [guessInput, setGuessInput] = useState('');
@@ -49,7 +51,7 @@ export default function App() {
     client.on('round_start', (startedRoom) => {
       setRoom(startedRoom);
       setChatMessages(startedRoom.chatMessages || []);
-      setMessage(`Round started! ${startedRoom.currentDrawerName || 'A player'} is drawing.`);
+      setMessage(`Round ${startedRoom.currentRound || 1} of ${startedRoom.totalRounds || 3} started! ${startedRoom.currentDrawerName || 'A player'} is drawing.`);
     });
 
     client.on('word_choices', ({ words }) => {
@@ -69,6 +71,19 @@ export default function App() {
       }));
       setChatMessages(updatedRoom.chatMessages || []);
       setMessage(`The word has been chosen. ${updatedRoom.currentDrawerName || 'Drawer'} is ready to draw.`);
+    });
+
+    client.on('round_end', ({ correctWord, scores }) => {
+      setRoom((currentRoom) => ({
+        ...(currentRoom || {}),
+        status: 'round_end',
+        selectedWord: correctWord,
+        players: (currentRoom?.players || []).map((player) => {
+          const score = scores.find((entry) => entry.id === player.id);
+          return score ? { ...player, score: score.score } : player;
+        }),
+      }));
+      setMessage(`Round over! The word was "${correctWord}". The next round starts in 5 seconds.`);
     });
 
     client.on('draw_start', ({ drawerId, stroke }) => {
@@ -109,6 +124,26 @@ export default function App() {
       ]);
     });
 
+    client.on('timer_tick', ({ remainingTime, totalTime }) => {
+      setRoom((currentRoom) => ({
+        ...(currentRoom || {}),
+        remainingTime,
+        drawTimeSeconds: totalTime,
+      }));
+    });
+
+    client.on('game_over', ({ winner, scores }) => {
+      setRoom((currentRoom) => ({
+        ...(currentRoom || {}),
+        status: 'game_over',
+        players: (currentRoom?.players || []).map((player) => {
+          const score = scores.find((entry) => entry.id === player.id);
+          return score ? { ...player, score: score.score } : player;
+        }),
+      }));
+      setMessage(winner ? `${winner.name} wins the game!` : 'The game is over.');
+    });
+
     client.on('room_error', ({ message: errorMessage }) => {
       setMessage(errorMessage);
     });
@@ -137,7 +172,11 @@ export default function App() {
       return;
     }
 
-    socket.emit('create_room', { playerName: playerName.trim() });
+    socket.emit('create_room', {
+      playerName: playerName.trim(),
+      totalRounds: Number(totalRoundsInput) || 3,
+      drawTimeSeconds: Number(drawTimeInput) || 60,
+    });
   };
 
   const handleJoinRoom = () => {
@@ -332,6 +371,31 @@ export default function App() {
             placeholder="Enter your name"
           />
 
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="block text-sm font-medium text-slate-200" htmlFor="totalRoundsInput">
+              Total rounds
+              <input
+                id="totalRoundsInput"
+                type="number"
+                min="1"
+                value={totalRoundsInput}
+                onChange={(event) => setTotalRoundsInput(event.target.value)}
+                className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400"
+              />
+            </label>
+            <label className="block text-sm font-medium text-slate-200" htmlFor="drawTimeInput">
+              Draw time (seconds)
+              <input
+                id="drawTimeInput"
+                type="number"
+                min="10"
+                value={drawTimeInput}
+                onChange={(event) => setDrawTimeInput(event.target.value)}
+                className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400"
+              />
+            </label>
+          </div>
+
           <button
             type="button"
             onClick={handleCreateRoom}
@@ -371,6 +435,9 @@ export default function App() {
           <div className="mt-6 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-100">
             <p className="font-semibold">Lobby</p>
             <p className="mt-1">Code: <span className="font-mono text-xl tracking-[0.35em]">{room.roomCode}</span></p>
+            <p className="mt-1">Round {room.currentRound || 1} / {room.totalRounds || totalRoundsInput || 3}</p>
+            <p className="mt-1">Draw time: {room.drawTimeSeconds || drawTimeInput || 60}s</p>
+            {room.remainingTime !== undefined && <p className="mt-1 text-amber-100">Time left: {room.remainingTime}s</p>}
             <p className="mt-1">Host: {room.players[0]?.name || 'Waiting for host'}</p>
             {room.currentDrawerName && (
               <p className="mt-2 text-emerald-50">Current drawer: <span className="font-semibold">{room.currentDrawerName}</span></p>
@@ -502,7 +569,20 @@ export default function App() {
                 Start Game
               </button>
             )}
-            <p className="mt-2 font-medium text-emerald-50">Players in lobby</p>
+            <div className="mt-4 rounded-2xl border border-emerald-400/20 bg-slate-950/50 p-4">
+              <p className="text-sm font-semibold text-emerald-100">Leaderboard</p>
+              <ul className="mt-3 space-y-2 text-emerald-100/90">
+                {[...(room.players || [])]
+                  .sort((a, b) => (b.score || 0) - (a.score || 0))
+                  .map((player, index) => (
+                    <li key={player.id} className="flex items-center justify-between rounded-lg border border-emerald-400/20 bg-slate-950/40 px-3 py-2">
+                      <span>{index + 1}. {player.name}</span>
+                      <span className="font-semibold text-emerald-50">{player.score || 0} pts</span>
+                    </li>
+                  ))}
+              </ul>
+            </div>
+            <p className="mt-4 font-medium text-emerald-50">Players in lobby</p>
             <ul className="mt-2 space-y-1 text-emerald-100/90">
               {room.players.map((player) => (
                 <li key={player.id} className="rounded-lg border border-emerald-400/20 bg-slate-950/40 px-3 py-2">{player.name}</li>
