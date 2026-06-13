@@ -47,6 +47,8 @@ io.on('connection', (socket) => {
       currentDrawerName: null,
       wordChoices: [],
       selectedWord: null,
+      chatMessages: [],
+      guessedPlayers: [],
     };
 
     rooms.set(roomCode, room);
@@ -107,6 +109,8 @@ io.on('connection', (socket) => {
     room.currentDrawerName = firstDrawer?.name || null;
     room.wordChoices = wordChoices;
     room.selectedWord = null;
+    room.chatMessages = [];
+    room.guessedPlayers = [];
 
     io.to(code).emit('round_start', room);
     io.to(firstDrawer.id).emit('word_choices', { roomCode: code, words: wordChoices });
@@ -178,6 +182,63 @@ io.on('connection', (socket) => {
     }
 
     io.to(code).emit('draw_end', { drawerId: socket.id });
+  });
+
+  socket.on('submit_guess', ({ roomCode, guess }) => {
+    const code = roomCode?.trim().toUpperCase();
+    const room = rooms.get(code);
+
+    if (!room) {
+      socket.emit('room_error', { message: 'Room does not exist.' });
+      return;
+    }
+
+    if (!room.selectedWord || room.status !== 'in_progress') {
+      socket.emit('room_error', { message: 'The round is not active yet.' });
+      return;
+    }
+
+    if (room.currentDrawerId === socket.id) {
+      socket.emit('room_error', { message: 'The drawer cannot guess.' });
+      return;
+    }
+
+    const normalizedGuess = guess?.trim().toLowerCase();
+    const normalizedWord = room.selectedWord.trim().toLowerCase();
+    const player = room.players.find((entry) => entry.id === socket.id);
+
+    if (!normalizedGuess) {
+      socket.emit('room_error', { message: 'Please enter a guess before sending it.' });
+      return;
+    }
+
+    const chatMessage = {
+      id: `${socket.id}-${Date.now()}`,
+      type: 'guess',
+      playerName: player?.name || 'Player',
+      text: guess.trim(),
+    };
+
+    room.chatMessages = [...(room.chatMessages || []).slice(-19), chatMessage];
+    io.to(code).emit('chat_message', chatMessage);
+
+    if (normalizedGuess === normalizedWord) {
+      if (room.guessedPlayers?.includes(socket.id)) {
+        return;
+      }
+
+      room.guessedPlayers = [...(room.guessedPlayers || []), socket.id];
+
+      const correctMessage = {
+        id: `${socket.id}-correct-${Date.now()}`,
+        type: 'system',
+        text: `${player?.name || 'Player'} guessed the word!`,
+      };
+
+      room.chatMessages = [...(room.chatMessages || []).slice(-19), correctMessage];
+      io.to(code).emit('chat_message', correctMessage);
+      io.to(code).emit('guess_correct', { playerId: socket.id, playerName: player?.name || 'Player' });
+    }
   });
 
   socket.on('disconnect', () => {

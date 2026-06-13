@@ -6,6 +6,8 @@ export default function App() {
   const [roomCodeInput, setRoomCodeInput] = useState('');
   const [room, setRoom] = useState(null);
   const [message, setMessage] = useState('');
+  const [guessInput, setGuessInput] = useState('');
+  const [chatMessages, setChatMessages] = useState([]);
   const [socket, setSocket] = useState(null);
   const [brushColor, setBrushColor] = useState('#22d3ee');
   const [brushSize, setBrushSize] = useState(4);
@@ -28,21 +30,25 @@ export default function App() {
 
     client.on('room_created', (createdRoom) => {
       setRoom(createdRoom);
+      setChatMessages(createdRoom.chatMessages || []);
       setMessage(`Room created successfully. Code: ${createdRoom.roomCode}`);
     });
 
     client.on('room_joined', (joinedRoom) => {
       setRoom(joinedRoom);
+      setChatMessages(joinedRoom.chatMessages || []);
       setMessage(`You joined room ${joinedRoom.roomCode}.`);
     });
 
     client.on('room_updated', (updatedRoom) => {
       setRoom(updatedRoom);
+      setChatMessages(updatedRoom.chatMessages || []);
       setMessage(`Lobby updated. ${updatedRoom.players.length} player(s) in the room.`);
     });
 
     client.on('round_start', (startedRoom) => {
       setRoom(startedRoom);
+      setChatMessages(startedRoom.chatMessages || []);
       setMessage(`Round started! ${startedRoom.currentDrawerName || 'A player'} is drawing.`);
     });
 
@@ -61,6 +67,7 @@ export default function App() {
         ...updatedRoom,
         status: 'in_progress',
       }));
+      setChatMessages(updatedRoom.chatMessages || []);
       setMessage(`The word has been chosen. ${updatedRoom.currentDrawerName || 'Drawer'} is ready to draw.`);
     });
 
@@ -88,6 +95,18 @@ export default function App() {
       }
 
       incomingStrokeRef.current = null;
+    });
+
+    client.on('chat_message', (chatMessage) => {
+      setChatMessages((currentMessages) => [...currentMessages, chatMessage]);
+    });
+
+    client.on('guess_correct', ({ playerName }) => {
+      setMessage(`${playerName} guessed the word!`);
+      setChatMessages((currentMessages) => [
+        ...currentMessages,
+        { id: `system-${Date.now()}`, type: 'system', text: `${playerName} guessed the word!` },
+      ]);
     });
 
     client.on('room_error', ({ message: errorMessage }) => {
@@ -163,6 +182,29 @@ export default function App() {
     }
 
     socket.emit('choose_word', { roomCode: room.roomCode, word });
+  };
+
+  const handleSubmitGuess = (event) => {
+    event.preventDefault();
+
+    if (!socket || !room?.roomCode) {
+      setMessage('Unable to send a guess right now.');
+      return;
+    }
+
+    if (isCurrentDrawer) {
+      setMessage('The drawer cannot guess.');
+      return;
+    }
+
+    const trimmedGuess = guessInput.trim();
+    if (!trimmedGuess) {
+      setMessage('Please enter a guess before sending it.');
+      return;
+    }
+
+    socket.emit('submit_guess', { roomCode: room.roomCode, guess: trimmedGuess });
+    setGuessInput('');
   };
 
   const getCanvasContext = () => canvasRef.current?.getContext('2d');
@@ -413,6 +455,42 @@ export default function App() {
                     />
                   </div>
                 )}
+              </div>
+            )}
+            {room.selectedWord && room.status === 'in_progress' && !isCurrentDrawer && (
+              <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+                <p className="text-sm font-semibold text-cyan-100">Guess the word</p>
+                <form onSubmit={handleSubmitGuess} className="mt-3 flex gap-2">
+                  <input
+                    type="text"
+                    value={guessInput}
+                    onChange={(event) => setGuessInput(event.target.value)}
+                    placeholder="Type your guess"
+                    className="flex-1 rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400"
+                  />
+                  <button
+                    type="submit"
+                    className="rounded-xl bg-cyan-400 px-4 py-3 font-semibold text-slate-950 transition hover:bg-cyan-300"
+                  >
+                    Send
+                  </button>
+                </form>
+              </div>
+            )}
+            {room.selectedWord && room.status === 'in_progress' && (
+              <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+                <p className="text-sm font-semibold text-cyan-100">Chat</p>
+                <ul className="mt-3 max-h-48 space-y-2 overflow-y-auto text-sm text-slate-100">
+                  {chatMessages.length === 0 && <li className="text-slate-400">No guesses yet.</li>}
+                  {chatMessages.map((chatMessage) => (
+                    <li
+                      key={chatMessage.id}
+                      className={chatMessage.type === 'system' ? 'text-amber-100' : 'text-slate-100'}
+                    >
+                      {chatMessage.type === 'guess' ? `${chatMessage.playerName}: ${chatMessage.text}` : chatMessage.text}
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
             {isHost && !room.currentDrawerName && (
