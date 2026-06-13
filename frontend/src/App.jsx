@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
 
 export default function App() {
@@ -7,6 +7,9 @@ export default function App() {
   const [room, setRoom] = useState(null);
   const [message, setMessage] = useState('');
   const [socket, setSocket] = useState(null);
+  const [brushColor, setBrushColor] = useState('#22d3ee');
+  const [brushSize, setBrushSize] = useState(4);
+  const canvasRef = useRef(null);
 
   const isHost = socket?.id && room?.hostId === socket.id;
   const isCurrentDrawer = socket?.id && room?.currentDrawerId === socket.id;
@@ -134,6 +137,69 @@ export default function App() {
     socket.emit('choose_word', { roomCode: room.roomCode, word });
   };
 
+  const getCanvasContext = () => canvasRef.current?.getContext('2d');
+
+  const startDrawing = (event) => {
+    if (!isCurrentDrawer || !canvasRef.current) {
+      return;
+    }
+
+    const context = getCanvasContext();
+    if (!context) {
+      return;
+    }
+
+    const point = getPoint(event);
+    context.beginPath();
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
+    context.lineWidth = brushSize;
+    context.strokeStyle = brushColor;
+    context.moveTo(point.x, point.y);
+    context.lineTo(point.x, point.y);
+    context.stroke();
+    context.beginPath();
+    context.moveTo(point.x, point.y);
+    event.preventDefault();
+  };
+
+  const draw = (event) => {
+    if (!isCurrentDrawer || !canvasRef.current) {
+      return;
+    }
+
+    const context = getCanvasContext();
+    if (!context || !event.buttons) {
+      return;
+    }
+
+    const point = getPoint(event);
+    context.lineTo(point.x, point.y);
+    context.stroke();
+    event.preventDefault();
+  };
+
+  const getPoint = (event) => {
+    const rect = canvasRef.current.getBoundingClientRect();
+    return {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+    };
+  };
+
+  const clearCanvas = () => {
+    if (!canvasRef.current) {
+      return;
+    }
+
+    const context = getCanvasContext();
+    if (!context) {
+      return;
+    }
+
+    context.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+  };
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6">
       <section className="w-full max-w-xl rounded-3xl border border-slate-800 bg-slate-900/90 p-8 shadow-2xl shadow-slate-950/60">
@@ -217,6 +283,65 @@ export default function App() {
               <div className="mt-4 rounded-2xl border border-cyan-400/30 bg-slate-950/50 p-4">
                 <p className="text-sm font-semibold text-cyan-100">{isCurrentDrawer ? 'Your secret word' : 'Word length'}</p>
                 <p className="mt-1 text-lg font-mono tracking-[0.25em] text-cyan-50">{isCurrentDrawer ? room.selectedWord : wordLengthDisplay}</p>
+              </div>
+            )}
+            {room.selectedWord && room.status === 'in_progress' && (
+              <div className="mt-4 rounded-2xl border border-cyan-400/30 bg-slate-950/60 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-cyan-100">Drawing board</p>
+                  {isCurrentDrawer && (
+                    <button
+                      type="button"
+                      onClick={clearCanvas}
+                      className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-100 hover:bg-slate-700"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+                {isCurrentDrawer ? (
+                  <div className="mt-3 space-y-3">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <label className="text-xs uppercase tracking-[0.25em] text-slate-300">Color</label>
+                      <input
+                        type="color"
+                        value={brushColor}
+                        onChange={(event) => setBrushColor(event.target.value)}
+                        className="h-10 w-16 rounded-lg border border-slate-700 bg-slate-800"
+                      />
+                      <label className="text-xs uppercase tracking-[0.25em] text-slate-300">Brush</label>
+                      <select
+                        value={brushSize}
+                        onChange={(event) => setBrushSize(Number(event.target.value))}
+                        className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100"
+                      >
+                        <option value={2}>2 px</option>
+                        <option value={4}>4 px</option>
+                        <option value={6}>6 px</option>
+                        <option value={8}>8 px</option>
+                      </select>
+                    </div>
+                    <canvas
+                      ref={canvasRef}
+                      width="380"
+                      height="220"
+                      onPointerDown={startDrawing}
+                      onPointerMove={draw}
+                      onPointerUp={() => {}}
+                      className="w-full rounded-2xl border border-slate-700 bg-white"
+                    />
+                  </div>
+                ) : (
+                  <div className="mt-3 space-y-2">
+                    <p className="text-xs uppercase tracking-[0.25em] text-slate-300">Read-only view</p>
+                    <canvas
+                      ref={canvasRef}
+                      width="380"
+                      height="220"
+                      className="w-full rounded-2xl border border-slate-700 bg-white cursor-not-allowed"
+                    />
+                  </div>
+                )}
               </div>
             )}
             {isHost && !room.currentDrawerName && (
