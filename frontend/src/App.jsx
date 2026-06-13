@@ -10,6 +10,8 @@ export default function App() {
   const [brushColor, setBrushColor] = useState('#22d3ee');
   const [brushSize, setBrushSize] = useState(4);
   const canvasRef = useRef(null);
+  const activeStrokeRef = useRef(null);
+  const incomingStrokeRef = useRef(null);
 
   const isHost = socket?.id && room?.hostId === socket.id;
   const isCurrentDrawer = socket?.id && room?.currentDrawerId === socket.id;
@@ -60,6 +62,32 @@ export default function App() {
         status: 'in_progress',
       }));
       setMessage(`The word has been chosen. ${updatedRoom.currentDrawerName || 'Drawer'} is ready to draw.`);
+    });
+
+    client.on('draw_start', ({ drawerId, stroke }) => {
+      if (drawerId === client.id) {
+        return;
+      }
+
+      incomingStrokeRef.current = { ...stroke, points: [...stroke.points] };
+      renderStroke(incomingStrokeRef.current);
+    });
+
+    client.on('draw_move', ({ drawerId, point }) => {
+      if (drawerId === client.id || !incomingStrokeRef.current) {
+        return;
+      }
+
+      incomingStrokeRef.current.points.push(point);
+      renderStroke(incomingStrokeRef.current);
+    });
+
+    client.on('draw_end', ({ drawerId }) => {
+      if (drawerId === client.id) {
+        return;
+      }
+
+      incomingStrokeRef.current = null;
     });
 
     client.on('room_error', ({ message: errorMessage }) => {
@@ -139,6 +167,29 @@ export default function App() {
 
   const getCanvasContext = () => canvasRef.current?.getContext('2d');
 
+  const renderStroke = (stroke) => {
+    const context = getCanvasContext();
+    if (!context || !stroke?.points?.length) {
+      return;
+    }
+
+    context.strokeStyle = stroke.color;
+    context.lineWidth = stroke.size;
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
+    context.beginPath();
+
+    stroke.points.forEach((point, index) => {
+      if (index === 0) {
+        context.moveTo(point.x, point.y);
+      } else {
+        context.lineTo(point.x, point.y);
+      }
+    });
+
+    context.stroke();
+  };
+
   const startDrawing = (event) => {
     if (!isCurrentDrawer || !canvasRef.current) {
       return;
@@ -158,8 +209,13 @@ export default function App() {
     context.moveTo(point.x, point.y);
     context.lineTo(point.x, point.y);
     context.stroke();
-    context.beginPath();
-    context.moveTo(point.x, point.y);
+
+    activeStrokeRef.current = { color: brushColor, size: brushSize, points: [point] };
+
+    if (socket && room?.roomCode) {
+      socket.emit('draw_start', { roomCode: room.roomCode, stroke: activeStrokeRef.current });
+    }
+
     event.preventDefault();
   };
 
@@ -176,6 +232,12 @@ export default function App() {
     const point = getPoint(event);
     context.lineTo(point.x, point.y);
     context.stroke();
+
+    if (socket && room?.roomCode && activeStrokeRef.current) {
+      activeStrokeRef.current.points.push(point);
+      socket.emit('draw_move', { roomCode: room.roomCode, point });
+    }
+
     event.preventDefault();
   };
 
@@ -198,6 +260,15 @@ export default function App() {
     }
 
     context.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+  };
+
+  const endDrawing = () => {
+    if (!isCurrentDrawer || !socket || !room?.roomCode || !activeStrokeRef.current) {
+      return;
+    }
+
+    socket.emit('draw_end', { roomCode: room.roomCode, stroke: activeStrokeRef.current });
+    activeStrokeRef.current = null;
   };
 
   return (
@@ -327,7 +398,7 @@ export default function App() {
                       height="220"
                       onPointerDown={startDrawing}
                       onPointerMove={draw}
-                      onPointerUp={() => {}}
+                      onPointerUp={endDrawing}
                       className="w-full rounded-2xl border border-slate-700 bg-white"
                     />
                   </div>

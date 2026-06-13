@@ -147,6 +147,39 @@ io.on('connection', (socket) => {
     console.log(`Drawer ${socket.id} chose word "${word}" for room ${code}`);
   });
 
+  socket.on('draw_start', ({ roomCode, stroke }) => {
+    const code = roomCode?.trim().toUpperCase();
+    const room = rooms.get(code);
+
+    if (!room || room.currentDrawerId !== socket.id) {
+      return;
+    }
+
+    io.to(code).emit('draw_start', { drawerId: socket.id, stroke });
+  });
+
+  socket.on('draw_move', ({ roomCode, point }) => {
+    const code = roomCode?.trim().toUpperCase();
+    const room = rooms.get(code);
+
+    if (!room || room.currentDrawerId !== socket.id) {
+      return;
+    }
+
+    io.to(code).emit('draw_move', { drawerId: socket.id, point });
+  });
+
+  socket.on('draw_end', ({ roomCode }) => {
+    const code = roomCode?.trim().toUpperCase();
+    const room = rooms.get(code);
+
+    if (!room || room.currentDrawerId !== socket.id) {
+      return;
+    }
+
+    io.to(code).emit('draw_end', { drawerId: socket.id });
+  });
+
   socket.on('disconnect', () => {
     const roomCode = Array.from(socket.rooms).find((roomId) => rooms.has(roomId) && roomId !== socket.id);
 
